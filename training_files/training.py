@@ -1,6 +1,5 @@
 from pathlib import Path
 import os
-from tf_agents.agents.dqn import dqn_agent
 from tf_agents.agents.ppo import ppo_agent
 from tf_agents.networks.actor_distribution_network import ActorDistributionNetwork
 from tf_agents.networks.value_network import ValueNetwork
@@ -10,17 +9,16 @@ from tf_agents.networks import q_network
 from tf_agents.replay_buffers import tf_uniform_replay_buffer
 from tf_agents.utils import common
 import tensorflow as tf
-from .emergent_environment import Train
+from .environment import Env
 import pandas as pd
 import tf_agents
 from .utils import collect_training_data, compute_avg_return, train_agent_loss
 
-class emergent_training_with_as:
+class train:
     def __init__(
         self,
         units_per_layer: int,
         training_iters: int,
-        epsilon_greedy: float = 0.2,
         learning_rate: float = 0.001,
         max_length: int = 10000,
         max_to_keep: int = 1,
@@ -31,6 +29,8 @@ class emergent_training_with_as:
         attention_schema:bool = False,
         catch_reward:bool = False,
         noise_removing: bool = False, 
+        actions: int = 3,
+        decoupling: bool = True,
         window_size: int = 3,
 		discount_factor: float = 0.99,
         episodes: int = 5,
@@ -39,7 +39,6 @@ class emergent_training_with_as:
     ):
         self.units_per_layer = units_per_layer
         self.training_iters = training_iters
-        self.epsilon_greedy = epsilon_greedy
         self.learning_rate = learning_rate
         self.max_length = max_length
         self.max_to_keep = max_to_keep
@@ -52,6 +51,8 @@ class emergent_training_with_as:
         self.discount_factor = discount_factor
         self.attention_reward = attention_reward
         self.attention_schema = attention_schema
+        self.actions = actions
+        self.decoupling = decoupling
         self.testing_iters = testing_iters
         self.catch_reward = catch_reward
         self.noise_removing = noise_removing
@@ -62,7 +63,7 @@ class emergent_training_with_as:
         )
         Path(self.save_checkpoint_path).mkdir(exist_ok=True)
         
-        self.train_agent = Train(
+        self.train_agent = Env(
 			attention_reward = self.attention_reward,
 			catch_reward = self.catch_reward,
 			noise_removing = self.noise_removing,
@@ -70,39 +71,15 @@ class emergent_training_with_as:
 			window_size=self.window_size,
 			discount_factor=self.discount_factor,
 	 		look_back=self.look_back, 
-			noise=self.noise
+			noise=self.noise,
+            actions=self.actions,
+            decoupling=self.decoupling
 		)
         self.train_agent_env = tf_py_environment.TFPyEnvironment(self.train_agent)
         
         
 
-        self.test_attention_score = Train(
-			attention_reward = True,
-			catch_reward = False,
-			noise_removing = self.noise_removing,
-			attention_schema=self.attention_schema,
-			window_size=self.window_size,
-			discount_factor=self.discount_factor,
-	 		look_back=self.look_back, 
-			noise=self.noise			)
-        
-        self.test_attention_score_env = tf_py_environment.TFPyEnvironment(
-			self.test_attention_score
-		)
-		
-        self.test_catch_score = Train(
-			attention_reward = False,
-			catch_reward = True,
-			noise_removing = self.noise_removing,
-			attention_schema=self.attention_schema,
-			window_size=self.window_size,
-			discount_factor=self.discount_factor,
-	 		look_back=self.look_back, 
-			noise=self.noise
-				)
-        self.test_catch_score_env = tf_py_environment.TFPyEnvironment(self.test_catch_score)
-
-        self.test_attention_score_random_schema = Train(
+        self.test_attention_score = Env(
 			attention_reward = True,
 			catch_reward = False,
 			noise_removing = self.noise_removing,
@@ -111,13 +88,45 @@ class emergent_training_with_as:
 			discount_factor=self.discount_factor,
 	 		look_back=self.look_back, 
 			noise=self.noise,
+            actions=self.actions,
+            decoupling=self.decoupling			)
+        
+        self.test_attention_score_env = tf_py_environment.TFPyEnvironment(
+			self.test_attention_score
+		)
+		
+        self.test_catch_score = Env(
+			attention_reward = False,
+			catch_reward = True,
+			noise_removing = self.noise_removing,
+			attention_schema=self.attention_schema,
+			window_size=self.window_size,
+			discount_factor=self.discount_factor,
+	 		look_back=self.look_back, 
+			noise=self.noise,
+            actions=self.actions,
+            decoupling=self.decoupling
+				)
+        self.test_catch_score_env = tf_py_environment.TFPyEnvironment(self.test_catch_score)
+
+        self.test_attention_score_random_schema = Env(
+			attention_reward = True,
+			catch_reward = False,
+			noise_removing = self.noise_removing,
+			attention_schema=self.attention_schema,
+			window_size=self.window_size,
+			discount_factor=self.discount_factor,
+	 		look_back=self.look_back, 
+			noise=self.noise,            
+            actions=self.actions,
+            decoupling=self.decoupling,
             random_schema_action=True			)
         
         self.test_attention_score_random_schema_env = tf_py_environment.TFPyEnvironment(
 			self.test_attention_score_random_schema
 		)
 		
-        self.test_catch_score_random_schema = Train(
+        self.test_catch_score_random_schema = Env(
 			attention_reward = False,
 			catch_reward = True,
 			noise_removing = self.noise_removing,
@@ -126,11 +135,14 @@ class emergent_training_with_as:
 			discount_factor=self.discount_factor,
 	 		look_back=self.look_back, 
 			noise=self.noise,
+               
+            actions=self.actions,
+            decoupling=self.decoupling,
             random_schema_action = True
 				)
         self.test_catch_score_random_schema_env = tf_py_environment.TFPyEnvironment(self.test_catch_score_random_schema)
 
-        self.test_attention_score_disabled_as = Train(
+        self.test_attention_score_disabled_as = Env(
 			attention_reward = True,
 			catch_reward = False,
 			noise_removing = self.noise_removing,
@@ -138,13 +150,15 @@ class emergent_training_with_as:
 			window_size=self.window_size,
 			discount_factor=self.discount_factor,
 	 		look_back=self.look_back, 
-			noise=self.noise
+			noise=self.noise,
+            actions=self.actions,
+            decoupling=self.decoupling
 			)
         self.test_attention_score_disabled_as_env = tf_py_environment.TFPyEnvironment(
 			self.test_attention_score_disabled_as
 		)
 		 
-        self.test_attention_score_disabled_a = Train(
+        self.test_attention_score_disabled_a = Env(
 			attention_reward = True,
 			catch_reward = False,
 			noise_removing = False,
@@ -152,12 +166,14 @@ class emergent_training_with_as:
 			window_size=self.window_size,
 			discount_factor=self.discount_factor,
 	 		look_back=self.look_back, 
-			noise=self.noise
+			noise=self.noise,
+            actions=self.actions,
+            decoupling=self.decoupling
 		) 
         self.test_attention_score_disabled_a_env = tf_py_environment.TFPyEnvironment(
 				self.test_attention_score_disabled_a
 			)
-        self.test_catch_score_disabled_as = Train(
+        self.test_catch_score_disabled_as = Env(
 			attention_reward = False,
 			catch_reward = True,
 			noise_removing = self.noise_removing,
@@ -165,12 +181,14 @@ class emergent_training_with_as:
 			window_size=self.window_size,
 			discount_factor=self.discount_factor,
 	 		look_back=self.look_back, 
-			noise=self.noise
+			noise=self.noise,
+            actions=self.actions,
+            decoupling=self.decoupling
 			)
         self.test_catch_score_disabled_as_env = tf_py_environment.TFPyEnvironment(
 			self.test_catch_score_disabled_as
 		)
-        self.test_catch_score_disabled_a = Train(
+        self.test_catch_score_disabled_a = Env(
 			attention_reward = False,
 			catch_reward = True,
 			noise_removing = False,
@@ -178,7 +196,9 @@ class emergent_training_with_as:
 			window_size=self.window_size,
 			discount_factor=self.discount_factor,
 	 		look_back=self.look_back, 
-			noise=self.noise
+			noise=self.noise,
+            actions=self.actions,
+            decoupling=self.decoupling
 			)
         self.test_catch_score_disabled_a_env = tf_py_environment.TFPyEnvironment(
 				self.test_catch_score_disabled_a
@@ -197,35 +217,7 @@ class emergent_training_with_as:
 
 
     def start_train(self):
-        q_net = q_network.QNetwork(
-            self.train_agent_env.time_step_spec().observation,
-            self.train_agent_env.action_spec(),
-            fc_layer_params=(
-                self.units_per_layer,
-                self.units_per_layer,
-                self.units_per_layer,
-            ),
-        )
-
-        """global_step = tf.compat.v1.train.get_or_create_global_step()
-        start_epsilon = self.epsilon_greedy
-        n_of_steps = 100000
-        end_epsilon = 0.0001
-        epsilon = tf.compat.v1.train.polynomial_decay(
-            start_epsilon,
-            global_step,
-            n_of_steps,
-            end_learning_rate=end_epsilon)
-
-        agent = dqn_agent.DqnAgent(
-            time_step_spec=self.train_agent_env.time_step_spec(),
-            action_spec=self.train_agent_env.action_spec(),
-            q_network=q_net,
-            epsilon_greedy=epsilon,
-            optimizer=tf.optimizers.Adam(self.learning_rate),
-            gamma=self.discount_factor
-        )
-        """
+        
         #diagonal initialization for ppo! make sure to initialize final layer (policy output layer) with particularly small weights
         actor_net = ActorDistributionNetwork(
              input_tensor_spec=self.train_agent_env.observation_spec(),
@@ -246,10 +238,9 @@ class emergent_training_with_as:
              action_spec=self.train_agent_env.action_spec(),
              actor_net=actor_net,
              value_net=value_net,
-             optimizer=tf.keras.optimizers.Adam(self.learning_rate),#could be the issue? PPO Adam is better with non-default hparams by far!
+             optimizer=tf.keras.optimizers.Adam(self.learning_rate),
              num_epochs=5,
              discount_factor=self.discount_factor,
-             #entropy check
         )
 
         global_step = tf.compat.v1.train.get_or_create_global_step()
@@ -258,7 +249,7 @@ class emergent_training_with_as:
 
         replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
             agent.collect_data_spec,
-            batch_size=self.train_agent_env.batch_size,  # where does the batch size come from??
+            batch_size=self.train_agent_env.batch_size, 
             max_length=self.max_length,
         )
 

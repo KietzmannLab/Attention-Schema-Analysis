@@ -11,7 +11,7 @@ import tensorflow as tf
 # matplotlib for rendering
 
 
-class Train(py_environment.PyEnvironment):
+class Env(py_environment.PyEnvironment):
     """
     Class catch is the actual game.
     In the game, balls, represented by white tiles, fall from the top.
@@ -28,7 +28,9 @@ class Train(py_environment.PyEnvironment):
         discount_factor=0.99,
         look_back=10,
         noise=0.5,
-        random_schema_action = False
+        random_schema_action = False,
+        actions = 8,
+        decoupling = True
     ):
         if attention_reward:
             self.attention_reward = tf.constant(0.5, dtype=tf.float32)
@@ -48,15 +50,27 @@ class Train(py_environment.PyEnvironment):
         self.noise = noise
         self.discount_factor = discount_factor
         self.random_schema_action = random_schema_action
+        self.actions = actions
+        self.decoupling = decoupling
 
         self.grid_size = 10
         self._action_spec = array_spec.BoundedArraySpec(
             shape=(),
             dtype=np.int32,
             minimum=0,
-            maximum=(3 * 2 * 3) - 1, #(8 * 2 * 8) - 1,
+            maximum=(self.actions * 2 * self.actions) - 1, #(8 * 2 * 8) - 1,
             name="action",
-        )  # The number of possible actions is equal to the number of grid tiles times 3
+        )  
+        
+        if decoupling == False:
+            self._action_spec = array_spec.BoundedArraySpec(
+                shape=(),
+                dtype=np.int32,
+                minimum=0,
+                maximum=(self.actions * 2) - 1,
+                name="action",
+            )
+
         self._observation_spec = array_spec.BoundedArraySpec(
             shape=(self.grid_size * 2 * self.look_back, self.grid_size),
             dtype=np.int32,
@@ -78,11 +92,11 @@ class Train(py_environment.PyEnvironment):
         self.attn_col = copy.deepcopy(self.ball_col)
         
         if (
-            self.attn_col < self.half_window # was 1
+            self.attn_col < self.half_window  
         ):  # Check to make sure attention field is within bounds
-            self.attn_col = self.half_window # was 1
-        if self.attn_col > self.grid_size - 1 - self.half_window: # was - 2
-            self.attn_col = self.grid_size - 1 - self.half_window # was - 2
+            self.attn_col = self.half_window  
+        if self.attn_col > self.grid_size - 1 - self.half_window:  
+            self.attn_col = self.grid_size - 1 - self.half_window  
         self.landing = np.random.randint(
             0, 10
         )  # Randomly predetermine where the ball will land
@@ -126,11 +140,11 @@ class Train(py_environment.PyEnvironment):
         self.attn_col = copy.deepcopy(self.ball_col)
         
         if (
-            self.attn_col < self.half_window # was 1
+            self.attn_col < self.half_window  
         ):  # Check to make sure attention field is within bounds
-            self.attn_col = self.half_window # was 1
-        if self.attn_col > self.grid_size - 1 - self.half_window: # was - 2
-            self.attn_col = self.grid_size - 1 - self.half_window # was - 2
+            self.attn_col = self.half_window  
+        if self.attn_col > self.grid_size - 1 - self.half_window:  
+            self.attn_col = self.grid_size - 1 - self.half_window  
         self.landing = np.random.randint(
             0, 10
         )  # Randomly predetermine where the ball will land
@@ -159,68 +173,115 @@ class Train(py_environment.PyEnvironment):
         self.step_count += 1  # Increment the step counter
 
         # here we define how action selection affects the location of the paddle
-        """
-        #8 actions
-        if action in np.arange(0, 64):  # left
-            move = -1
-        elif action in np.arange(64, 128):
-            move = 1  # right
 
-        if action > 63:
-            action = action - 64
-        # Here we define how action selection affects the locus of attention
-        # Rescale action selection to exclude the chosen move
+        if self.actions == 8 and self.decoupling:
+            #8 actions
+            if action in np.arange(0, 64):  # left
+                move = -1
+            elif action in np.arange(64, 128):
+                move = 1  # right
+
+            if action > 63:
+                action = action - 64
+            # Here we define how action selection affects the locus of attention
+            # Rescale action selection to exclude the chosen move
+            
+            attn = action // 8
+            schema = action % 8 
+
+            if self.random_schema_action:
+                schema = np.random.randint(0,8)
+            # Attention movement options are stationary or 8 possible directions
+            moves = np.array(
+                [
+                    (0, 1),
+                    (1, 1),
+                    (1, 0),
+                    (1, -1),
+                    (0, -1),
+                    (-1, -1),
+                    (-1, 0),
+                    (-1, 1),
+                ]
+            )
+
+        elif self.actions == 3 and self.decoupling:
+
+            if action in np.arange(0, 9):  # left
+                move = -1
+            elif action in np.arange(9, 18):
+                move = 1  # right
+
+            if action > 8:
+                action = action - 9
+
+            attn = action // 3
+            schema = action % 3 
+
+            if self.random_schema_action:
+                schema = np.random.randint(0,3)
+            # Attention movement options are stationary or 8 possible directions
+            moves = np.array(
+                [
+                    (0, 1),
+                    (1, 1),
+                    (-1, 1),
+                ]
+            )
+
+        elif self.actions == 8 and self.decoupling == False:
+            if action in np.arange(0, 8):  # left
+                move = -1
+            elif action in np.arange(8, 16):
+                move = 1  # right
+
+            if action > 7:
+                action = action - 8
+            
+
+            if self.random_schema_action:
+                schema = np.random.randint(0,8)
+            # Attention movement options are stationary or 8 possible directions
+            moves = np.array(
+                [
+                    (0, 1),
+                    (1, 1),
+                    (1, 0),
+                    (1, -1),
+                    (0, -1),
+                    (-1, -1),
+                    (-1, 0),
+                    (-1, 1),
+                ]
+            )
+
+            attn = action
+            schema = action
         
+        elif self.actions == 3 and self.decoupling == False:
+            if action in np.arange(0, 3):
+                move = -1
+            elif action in np.arange(3, 6):
+                move = 1  # right
 
-        attn = action // 8
-        schema = action % 8 
+            if action > 2:
+                action = action - 3
+            
+            if self.random_schema_action:
+                schema = np.random.randint(0,3)
 
-        if self.random_schema_action:
-            schema = np.random.randint(0,8)
-        # Attention movement options are stationary or 8 possible directions
-        moves = np.array(
-            [
-                (0, 1),
-                (1, 1),
-                (1, 0),
-                (1, -1),
-                (0, -1),
-                (-1, -1),
-                (-1, 0),
-                (-1, 1),
-            ]
-        )
-        attn_delta_col, attn_delta_row = moves[attn]
-        # Apply the change in attention locus
-        self.attn_row = self.attn_row + attn_delta_row
-        self.attn_col = self.attn_col + attn_delta_col
+            moves = np.array(
+                [
+                    (0, 1),
+                    (1, 1),
+                    (-1, 1),
+                ]
+            )
 
-        schema_delta_col, schema_delta_row = moves[schema]
-        # Apply the change in attention locus
-        self.schema_row = self.schema_row + schema_delta_row
-        self.schema_col = self.schema_col + schema_delta_col"""
+            attn = action
+            schema = action
 
-        if action in np.arange(0, 9):  # left
-            move = -1
-        elif action in np.arange(9, 18):
-            move = 1  # right
 
-        if action > 8:
-            action = action - 9
-
-        attn = action // 3
-        schema = action % 3 
-
-        if self.random_schema_action:
-            schema = np.random.randint(0,3)
-        # Attention movement options are stationary or 8 possible directions
-        moves = np.array(
-            [
-                (0, 1),
-                (1, 1),
-                (-1, 1),
-            ]
-        )
         attn_delta_col, attn_delta_row = moves[attn]
         # Apply the change in attention locus
         self.attn_row = self.attn_row + attn_delta_row
@@ -234,30 +295,30 @@ class Train(py_environment.PyEnvironment):
 
 
         if (
-            self.attn_row < self.half_window # was 1
+            self.attn_row < self.half_window  
         ):  # Check to make sure attention field is within bounds
-            self.attn_row = self.half_window # was 1
-        if self.attn_row > self.grid_size - 1 - self.half_window: # was - 2
-            self.attn_row = self.grid_size - 1 - self.half_window # was - 2
+            self.attn_row = self.half_window  
+        if self.attn_row > self.grid_size - 1 - self.half_window:  
+            self.attn_row = self.grid_size - 1 - self.half_window  
         if (
-            self.attn_col < self.half_window # was 1
+            self.attn_col < self.half_window  
         ):  # Check to make sure attention field is within bounds
-            self.attn_col = self.half_window # was 1
-        if self.attn_col > self.grid_size - 1 - self.half_window: # was - 2
-            self.attn_col = self.grid_size - 1 - self.half_window # was - 
+            self.attn_col = self.half_window  
+        if self.attn_col > self.grid_size - 1 - self.half_window:  
+            self.attn_col = self.grid_size - 1 - self.half_window  
 
         if (
-            self.schema_row < self.half_window # was 1
+            self.schema_row < self.half_window  
         ):  # Check to make sure attention field is within bounds
-            self.schema_row = self.half_window # was 1
-        if self.schema_row > self.grid_size - 1 - self.half_window: # was - 2
-            self.schema_row = self.grid_size - 1 - self.half_window # was - 2
+            self.schema_row = self.half_window  
+        if self.schema_row > self.grid_size - 1 - self.half_window:  
+            self.schema_row = self.grid_size - 1 - self.half_window  
         if (
-            self.schema_col < self.half_window # was 1
+            self.schema_col < self.half_window  
         ):  # Check to make sure attention field is within bounds
-            self.schema_col = self.half_window # was 1
-        if self.schema_col > self.grid_size - 1 - self.half_window: # was - 2
-            self.schema_col = self.grid_size - 1 - self.half_window # was - 
+            self.schema_col = self.half_window  
+        if self.schema_col > self.grid_size - 1 - self.half_window:  
+            self.schema_col = self.grid_size - 1 - self.half_window  
         
         
 
@@ -276,27 +337,9 @@ class Train(py_environment.PyEnvironment):
         if self.ball_col > self.grid_size - 1:
             self.ball_col = self.grid_size - 1
 
-        """self.attn_row = self.ball_row
-        self.attn_col = self.ball_col
-
-        if (
-            self.attn_row < self.half_window # was 1
-        ):  # Check to 
-        make sure attention field is within bounds
-            self.attn_row = self.half_window # was 1
-        if self.attn_row > self.grid_size - 1 - self.half_window: # was - 2
-            self.attn_row = self.grid_size - 1 - self.half_window # was - 2
-        if (
-            self.attn_col < self.half_window # was 1
-        ):  # Check to make sure attention field is within bounds
-            self.attn_col = self.half_window # was 1
-        if self.attn_col > self.grid_size - 1 - self.half_window: # was - 2
-            self.attn_col = self.grid_size - 1 - self.half_window # was - 2
-
-
-         """
-
-
+        if self.decoupling == False:
+            self.schema_row = self.attn_row
+            self.schema_col = self.attn_col
 
         # Represent attention location:
         self.attn_rowspan = list(range(self.attn_row - self.half_window, self.attn_row + 1 + self.half_window)) #was-1 and +2
@@ -311,8 +354,6 @@ class Train(py_environment.PyEnvironment):
             self.paddle_loc < 1 or self.paddle_loc > self.grid_size - 2
         ):  # Check to make sure paddle is within bounds
             self.paddle_loc = self.paddle_loc - move  # undo the mistake
-
-        """self.paddle_loc = self.attn_col"""
 
         # Update ball position
         self.ball_row = (
