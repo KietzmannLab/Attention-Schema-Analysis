@@ -1,8 +1,7 @@
+# matplotlib for rendering
 import copy
 import math
 import os
-from pathlib import Path
-import pandas as pd
 
 import matplotlib.pyplot as plt
 
@@ -16,9 +15,12 @@ from tf_agents.specs import array_spec
 from tf_agents.trajectories import time_step as ts
 
 
+"""
+This file lets you generate, save and visualize game plays based on a trained policy.
+ 
+"""
+
 policy1 = tf.saved_model.load("../policy/policy_with_emergence_ar_no_mem_ppo_3_act_1e-05_lr_1000_units_3_windowsize_0.9_discount_factor")
-save_file_name = "fully_squeezed_aw_as_as_emergence_ar_no_mem_ppo_3_act_1e-05_lr_1000_units_3_windowsize_0.9_discount_factor"
-file_name = "emergence_ar_no_mem_ppo_3_act_1e-05_lr_1000_units_3_windowsize_0.9_discount_factor"
 
 #specify the training parameters for the environment if not default
 attention_reward = True
@@ -31,11 +33,11 @@ look_back = 1
 noise = 0.5
 random_schema_action = False
 decoupling = True
+actions = 3
 
 # this is the environment class that the agent has to learn to play in
-# the only change to the environment is that it saves the attention positions
-# and the schema positions
-
+# the only change to the environment is that the ball is now drawn in a different color
+# to make it distinguishable from the other objects for the human observer
 class Env(py_environment.PyEnvironment):
     """
     The environment in which the agent has to learn to play the game.
@@ -472,32 +474,6 @@ class Env(py_environment.PyEnvironment):
 
         canvas = np.concatenate((visual_canvas, attentional_canvas), axis=0)
 
-
-        # saving the positions to a file
-        pos_a = (self.attn_row * 10) + self.attn_col
-        pos_as = (self.schema_row * 10) + self.schema_col
-
-        pos_list = np.asarray([int(pos_a), int(pos_as)], dtype=int)
-        pos_list = np.reshape(pos_list, newshape=(1,2))
-
-        path = Path(
-                "./csvs/"
-				+ "as_pos/"
-				+ file_name
-				+ ".csv")
-    
-        if path.is_file():
-            results = np.loadtxt(path, dtype=int, delimiter=",")
-            if len(results.shape) < 2:
-                results = np.expand_dims(results, axis=0)
-            results = np.concatenate([results, pos_list], axis=0)
-            
-        else:
-            results = pd.DataFrame(pos_list) 
-
-        # Save results df to file
-        np.savetxt(path, results,fmt="%d", delimiter=",")
-
         return canvas
 
     def _append_to_memory(self, state):
@@ -511,83 +487,83 @@ class Env(py_environment.PyEnvironment):
         self.memory_buffer = updated_memory  # Update the memory buffer
         return updated_memory
 
+environment = Env(attention_reward=attention_reward, catch_reward=catch_reward, noise_removing=noise_removing, attention_schema=attention_schema, 
+                 window_size=window_size, discount_factor=discount_factor, look_back= look_back, noise=noise, 
+                 decoupling=decoupling , random_schema_action=random_schema_action, actions=actions)
+env = tf_py_environment.TFPyEnvironment(environment)
 
 def generate_plays(env, number_of_games, policy):
+    
     for n in range(number_of_games):
-        if(n) == 0:
-            time_step = env._reset()
+        time_step = env._reset()
 
         for i in range(10):
             action_step = policy.action(time_step)
             time_step = env.step(action_step.action)
 
 
-def make_heatmap(path):
-    """
-    makes a scatterplot of positions
-    """
-    path_to_store= Path("./csvs/"
-            + "as_pos/" + "fully_squeezed_"
-            + file_name
-            + ".png")
-    data = np.loadtxt(path, dtype=int, delimiter=",")
+def visualize(epoch, state, step):
+    try:
+        os.mkdir("./game_state_images/emergence_ar/" + str(epoch))
+    except OSError:
+        pass
 
-    x = data[:,0]
-    x = x % 10
-    y = data[:,1]
-    y = y % 10
+    state = np.asarray(state[0])
 
-    combinations_counter = np.zeros((8,8))
-    for idx, datapoint in enumerate(x):
-        combinations_counter[datapoint-1, y[idx]-1] += 1
+    state = PIL.Image.fromarray(state).resize(
+            [100, 200], resample=PIL.Image.NEAREST
+        )
 
-    relative_combinations = combinations_counter / np.sum(combinations_counter)
-    relative_combinations_flat = np.reshape(relative_combinations, newshape=64)
-    print(relative_combinations)
-    plt.figure(figsize=(6,6))
-
-    #plt.plot(a,a,'r',  alpha = 0.5)
-    #plt.scatter(x,y, s=150, alpha=0.005)
-    #plt.xlabel("Attention Window Column", fontsize=13)
-    #plt.ylabel("Attention Schema Column", fontsize=13)
-    #plt.savefig(path_to_store)
-
-    path_to_store= Path("./csvs/"
-            + "as_pos/" + "fully_squeezed2_"
-            + file_name
-            + ".png")
-    
-    axes = np.arange(8) + 1
-    plt.scatter(y=(np.repeat(axes,8)), x=(np.arange(64)%8)+1, s=150, cmap="Blues", c=relative_combinations_flat) 
-
-    cbar = plt.colorbar() 
-    cbar.ax.tick_params(labelsize=12)
-    cbar.set_label("Relative Frequency", fontsize=15)
-    plt.xticks(axes, fontsize=13)
-    plt.yticks(axes, fontsize=13)
-    plt.ylabel("Attention Window Column", fontsize=15)
-    plt.xlabel("Additional Resource Column", fontsize=15)
-
-    plt.savefig(path_to_store)
-
-# path where the positions are or will be stored
-path = Path(
-            "./csvs/"
-            + "as_pos/"
-            + file_name
-            + ".csv")
+    plt.imsave(
+            "./game_state_images/emergence_ar/"
+            + str(epoch)
+            + "/step"
+            + str(step)
+            + ".png",
+            state,
+            cmap="Greys"
+        )
 
 
-agent = Env(attention_reward=attention_reward, catch_reward=catch_reward, noise_removing=noise_removing, attention_schema=attention_schema, 
-                 window_size=window_size, discount_factor=discount_factor, look_back= look_back, noise=noise, 
-                 decoupling=decoupling , random_schema_action=False)
-env = tf_py_environment.TFPyEnvironment(agent)
+def visualize_test_run(policy, env):
+    return_dict = {}
+    for i in range(20):
+        episode_return = 0.0
+        time_step = env._reset()
+
+        step = 0
+        visualize(i, time_step.observation, step)
+
+        for step in range(1,10):
+            action_step = policy.action(time_step)
+            time_step = env.step(action_step.action)
+            episode_return += time_step.reward
+            state = time_step.observation
 
 
-generate_new_plays = False #wheter to generate new plays or not
-number_of_games = 4000 #number of games to be generated to gather data
+            visualize(i, state, step)
+        
+        fig, axes = plt.subplots(1,10, constrained_layout=True)
+        fig.set_facecolor([0.8,0.8,0.8])
 
-if generate_new_plays:  
-    generate_plays(env, number_of_games=number_of_games, policy=policy1)
+        plt.axis('off')
 
-make_heatmap(path)
+        for step in range(10):
+            axes[step].set_axis_off() 
+            axes[step].imshow(plt.imread("./game_state_images/emergence_ar/" + str(i)+ "/step" + str(step) + ".png"))
+
+        plt.savefig(
+            "./game_state_images/emergence_ar/"
+            + "whole_games/"
+            + "/game"+str(i)+".png"
+        )
+
+
+        return_dict[i] = episode_return.numpy().mean()
+
+    print(f"Return Episode {i}: {episode_return.numpy()}")
+    print(return_dict)
+    return None
+
+generate_plays(env,number_of_games=1,policy=policy1)
+visualize_test_run(policy1, env)

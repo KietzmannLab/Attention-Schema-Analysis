@@ -1,3 +1,5 @@
+# train a nn to infer attention window position from attention schema
+
 import copy
 import math
 import os
@@ -16,9 +18,26 @@ from tf_agents.specs import array_spec
 from tf_agents.trajectories import time_step as ts
 
 
+from sklearn.model_selection import KFold
+
+
+"""
+This file is used to train a neural network to infer the attention window position from the visual input.
+The K-fold cross validation is used to evaluate the model. 
+The data can be generated in this file as well. 
+"""
+
+
+decode_col = True #decode only column (True) or whole position (False)
+part_of_image = "lower_half" # which part of the image to decode fro: can be whole_image , upper_half, or lower_half
 policy1 = tf.saved_model.load("../policy/policy_with_emergence_ar_no_mem_ppo_3_act_1e-05_lr_1000_units_3_windowsize_0.9_discount_factor")
-save_file_name = "fully_squeezed_aw_as_as_emergence_ar_no_mem_ppo_3_act_1e-05_lr_1000_units_3_windowsize_0.9_discount_factor"
-file_name = "emergence_ar_no_mem_ppo_3_act_1e-05_lr_1000_units_3_windowsize_0.9_discount_factor"
+
+# generate new data and if yes how many?
+generate_new_plays = False
+num_generate_epochs = 2000
+
+# nn training settings
+nn_train_epochs = 30 # epochs
 
 #specify the training parameters for the environment if not default
 attention_reward = True
@@ -31,10 +50,33 @@ look_back = 1
 noise = 0.5
 random_schema_action = False
 decoupling = True
+actions = 3 
 
-# this is the environment class that the agent has to learn to play in
-# the only change to the environment is that it saves the attention positions
-# and the schema positions
+noise_str = str(noise)
+
+#name of the file where the data is stored
+if random_schema_action:
+    schema_str = "_random_schema"
+else:
+    schema_str = ""
+if part_of_image == "lower_half":
+    image_str = "_lower_half_"
+elif part_of_image == "upper_half":
+    image_str = "_upper_half_"
+else:
+    image_str = "_image_"
+
+if decode_col:
+    col_str = "col_"
+else: 
+    col_str = ""
+file_name = "aw_from_image_" + noise_str + "_noise"+schema_str+"_as_ball_full_image_"
+save_file_name = "aw_"+col_str+"from_"+image_str+"image_" + noise_str + "_noise"+schema_str+"_as"
+
+
+
+# normal emergent environment, where just the _draw_state() function is modified to allow storing the 
+# images and positions
 
 class Env(py_environment.PyEnvironment):
     """
@@ -462,9 +504,9 @@ class Env(py_environment.PyEnvironment):
             self.ball_row in self.attn_rowspan
             and self.ball_col in self.attn_colspan
         ):
-            visual_canvas[self.ball_row, self.ball_col] = 2  # draw ball to make it distinguishable
+            visual_canvas[self.ball_row, self.ball_col] = 1  # draw ball
         else:
-            visual_canvas[self.ball_row, self.ball_col] = 2  # draw ball to make it distinguishable
+            visual_canvas[self.ball_row, self.ball_col] = 1  # draw ball
 
         visual_canvas[
             self.grid_size - 1, self.paddle_loc - 1 : self.paddle_loc + 2
@@ -472,22 +514,27 @@ class Env(py_environment.PyEnvironment):
 
         canvas = np.concatenate((visual_canvas, attentional_canvas), axis=0)
 
+        # save image and attentional window position
 
-        # saving the positions to a file
+        # for whole image and aw pos
+        image_1d = np.concatenate((np.reshape(visual_canvas, newshape=(100)), np.reshape(attentional_canvas, newshape=(100))), axis=0)
+
         pos_a = (self.attn_row * 10) + self.attn_col
-        pos_as = (self.schema_row * 10) + self.schema_col
+        pos_list = np.concatenate((np.asarray([pos_a]), image_1d))
+        pos_list = np.reshape(pos_list, newshape=(1,201))
 
-        pos_list = np.asarray([int(pos_a), int(pos_as)], dtype=int)
-        pos_list = np.reshape(pos_list, newshape=(1,2))
+    
 
         path = Path(
                 "./csvs/"
-				+ "as_pos/"
+				+ "aw_as_pos/"
 				+ file_name
 				+ ".csv")
     
         if path.is_file():
-            results = np.loadtxt(path, dtype=int, delimiter=",")
+            
+            
+            results = np.loadtxt(path, dtype=int, delimiter=",")            
             if len(results.shape) < 2:
                 results = np.expand_dims(results, axis=0)
             results = np.concatenate([results, pos_list], axis=0)
@@ -512,7 +559,9 @@ class Env(py_environment.PyEnvironment):
         return updated_memory
 
 
+
 def generate_plays(env, number_of_games, policy):
+    
     for n in range(number_of_games):
         if(n) == 0:
             time_step = env._reset()
@@ -522,72 +571,102 @@ def generate_plays(env, number_of_games, policy):
             time_step = env.step(action_step.action)
 
 
-def make_heatmap(path):
-    """
-    makes a scatterplot of positions
-    """
-    path_to_store= Path("./csvs/"
-            + "as_pos/" + "fully_squeezed_"
-            + file_name
-            + ".png")
-    data = np.loadtxt(path, dtype=int, delimiter=",")
-
-    x = data[:,0]
-    x = x % 10
-    y = data[:,1]
-    y = y % 10
-
-    combinations_counter = np.zeros((8,8))
-    for idx, datapoint in enumerate(x):
-        combinations_counter[datapoint-1, y[idx]-1] += 1
-
-    relative_combinations = combinations_counter / np.sum(combinations_counter)
-    relative_combinations_flat = np.reshape(relative_combinations, newshape=64)
-    print(relative_combinations)
-    plt.figure(figsize=(6,6))
-
-    #plt.plot(a,a,'r',  alpha = 0.5)
-    #plt.scatter(x,y, s=150, alpha=0.005)
-    #plt.xlabel("Attention Window Column", fontsize=13)
-    #plt.ylabel("Attention Schema Column", fontsize=13)
-    #plt.savefig(path_to_store)
-
-    path_to_store= Path("./csvs/"
-            + "as_pos/" + "fully_squeezed2_"
-            + file_name
-            + ".png")
-    
-    axes = np.arange(8) + 1
-    plt.scatter(y=(np.repeat(axes,8)), x=(np.arange(64)%8)+1, s=150, cmap="Blues", c=relative_combinations_flat) 
-
-    cbar = plt.colorbar() 
-    cbar.ax.tick_params(labelsize=12)
-    cbar.set_label("Relative Frequency", fontsize=15)
-    plt.xticks(axes, fontsize=13)
-    plt.yticks(axes, fontsize=13)
-    plt.ylabel("Attention Window Column", fontsize=15)
-    plt.xlabel("Additional Resource Column", fontsize=15)
-
-    plt.savefig(path_to_store)
-
-# path where the positions are or will be stored
 path = Path(
             "./csvs/"
-            + "as_pos/"
+            + "aw_as_pos/"
             + file_name
             + ".csv")
 
 
-agent = Env(attention_reward=attention_reward, catch_reward=catch_reward, noise_removing=noise_removing, attention_schema=attention_schema, 
+if generate_new_plays:
+    environment = Env(attention_reward=attention_reward, catch_reward=catch_reward, noise_removing=noise_removing, attention_schema=attention_schema, 
                  window_size=window_size, discount_factor=discount_factor, look_back= look_back, noise=noise, 
-                 decoupling=decoupling , random_schema_action=False)
-env = tf_py_environment.TFPyEnvironment(agent)
+                 decoupling=decoupling , random_schema_action=random_schema_action, actions = actions)
+    env = tf_py_environment.TFPyEnvironment(environment)
+    generate_plays(env, number_of_games=num_generate_epochs, policy=policy1)
+
+#make nn
+data = np.loadtxt(path, dtype=int, delimiter=",")
+
+y = data[:,0] #attention window position
+
+if part_of_image == "whole_image":
+    x = data[:,1:]
+elif part_of_image == "upper_half":
+    x = data[:,1:101]
+elif part_of_image == "lower_half":
+    x = data[:,101:]
+
+if decode_col:
+    aw_col = y % 10
+    aw_col -= 1
+
+    aw_col = tf.cast(aw_col, tf.int64)
+
+    y = tf.one_hot(aw_col,8,dtype=tf.int64)
+    y_values = 8
+    #y = tf.expand_dims(y, axis=1)
 
 
-generate_new_plays = False #wheter to generate new plays or not
-number_of_games = 4000 #number of games to be generated to gather data
+else:
+    #if y is attention window pos
+    y_row = y // 10
+    y_col = y % 10
+    y = (y_row-1)*8 + y_col-1
+    y_values = 64
+    y = tf.one_hot(y,y_values)
 
-if generate_new_plays:  
-    generate_plays(env, number_of_games=number_of_games, policy=policy1)
 
-make_heatmap(path)
+
+y=tf.cast(y,tf.int64)
+
+# cross validation
+targets = y
+inputs = x
+
+
+# K-fold Cross Validation model evaluation
+fold_no = 1
+acc_per_fold = []
+num_folds = 10
+
+
+# Define the K-fold Cross Validator
+kfold = KFold(n_splits=num_folds, shuffle=True)
+
+for train, test in kfold.split(inputs, targets):
+
+    # Define the model architecture
+    nn = tf.keras.Sequential([
+    tf.keras.layers.Dense(1000),
+    tf.keras.layers.Dense(1000),
+    tf.keras.layers.Dense(1000),
+    tf.keras.layers.Dense(1000),
+    tf.keras.layers.Dense(y_values, 'softmax')
+    ])
+
+    acc = tf.keras.metrics.CategoricalAccuracy()
+    nn.compile(loss=tf.keras.losses.CategoricalCrossentropy(), optimizer=tf.keras.optimizers.Adam(), metrics=[acc])
+
+
+    # Generate a print
+    print('------------------------------------------------------------------------')
+    print(f'Training for fold {fold_no} ...')
+    input = np.take(inputs, train, axis=0)
+    target = np.take(targets, train, axis=0)
+    # Fit data to model
+    history = nn.fit(input, target,
+                epochs=nn_train_epochs)
+
+    input = np.take(inputs, test, axis=0)
+    target = np.take(targets, test, axis=0)
+    # Generate generalization metrics
+    scores = nn.evaluate(input, target, verbose=0)
+    acc_per_fold.append(scores[1] * 100)
+
+    # Increase fold number
+    fold_no = fold_no + 1
+print("accuracy per fold:")
+print(acc_per_fold)
+print("mean accuracy: " + str(np.mean(acc_per_fold)))
+

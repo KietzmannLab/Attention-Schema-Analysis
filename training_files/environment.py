@@ -13,11 +13,10 @@ import tensorflow as tf
 
 class Env(py_environment.PyEnvironment):
     """
-    Class catch is the actual game.
-    In the game, balls, represented by white tiles, fall from the top.
-    The goal is to catch the balls with a paddle
+    The environment in which the agent has to learn to play the game.
+    The environment is a simple game where the agent has to move a paddle to catch a ball.
+    The visual field is noisy and the agent has to attend to the ball to catch it.
     """
-
     def __init__(
         self,
         attention_reward=True,
@@ -29,7 +28,7 @@ class Env(py_environment.PyEnvironment):
         look_back=10,
         noise=0.5,
         random_schema_action = False,
-        actions = 8,
+        actions = 3,
         decoupling = True
     ):
         if attention_reward:
