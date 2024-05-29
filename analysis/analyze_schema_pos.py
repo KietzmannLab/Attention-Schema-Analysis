@@ -31,6 +31,7 @@ look_back = 1
 noise = 0.5
 random_schema_action = False
 decoupling = True
+actions = 3
 
 # this is the environment class that the agent has to learn to play in
 # the only change to the environment is that it saves the attention positions
@@ -578,10 +579,10 @@ path = Path(
             + ".csv")
 
 
-agent = Env(attention_reward=attention_reward, catch_reward=catch_reward, noise_removing=noise_removing, attention_schema=attention_schema, 
+environment = Env(attention_reward=attention_reward, catch_reward=catch_reward, noise_removing=noise_removing, attention_schema=attention_schema, 
                  window_size=window_size, discount_factor=discount_factor, look_back= look_back, noise=noise, 
-                 decoupling=decoupling , random_schema_action=False)
-env = tf_py_environment.TFPyEnvironment(agent)
+                 decoupling=decoupling , random_schema_action=random_schema_action, actions=actions)
+env = tf_py_environment.TFPyEnvironment(environment)
 
 
 generate_new_plays = False #wheter to generate new plays or not
